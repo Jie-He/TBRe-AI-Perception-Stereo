@@ -6,7 +6,6 @@
 //  -   by default, for ease of usage
 //  -   place the .cfg and .weight into "res/" where the executable is
 //  -   to improve the weights, have a look at the darknet documentation
-// Using [PnP] to approximate cones distance
 // ============================================================================
 
 // C++
@@ -42,8 +41,8 @@ void approx_distance(sl::Mat point_cloud, std::vector<cone>& clist){
 
         // calculate the mean between few points 
         
-        clist[i].cone_point_dist = 
-            sqrt(point3D.x*point3D.x + point3D.y*point3D.y + point3D.z*point3D.z);
+        clist[i].cone_point_dist = \
+        sqrt(point3D.x*point3D.x + point3D.y*point3D.y + point3D.z*point3D.z);
             
         std::cout << clist[i].cone_class << " : "
                   << clist[i].cone_point_dist << std::endl;
