@@ -47,6 +47,10 @@ void Detector::frame_process(Mat& frame, std::vector<cone>& clist){
     static Mat res, blob;
     
     resize(frame, res, Size(width, height));
+    // convert the resized frame to 3 channels BRG
+    if(res.type() != CV_8UC3)
+        cvtColor(res, res, COLOR_BGRA2BGR);
+
     blobFromImage(res, blob, detect_scales, Size(width, height),
                     Scalar(0,0,0), true, false);
 
@@ -66,7 +70,7 @@ void Detector::frame_process(Mat& frame, std::vector<cone>& clist){
             clist[i].cone_box.x *= ratio_w;
             clist[i].cone_box.y *= ratio_h;
             clist[i].cone_box.width *= ratio_w;
-            clist[i].cone_box.height*= ratio_h;        
+            clist[i].cone_box.height*= ratio_h;
     }
 
     // Can do some efficiency analysis here
@@ -197,7 +201,9 @@ void Detector::drawDetections(Mat& frame, std::vector<cone>& clist){
         int baseLine;
         Size labelSize = getTextSize(label, FONT_HERSHEY_SCRIPT_SIMPLEX, 
                                     0.5, 1, &baseLine);
+
         clist[i].cone_box.y = max(clist[i].cone_box.y, labelSize.height);
+
         putText(frame, label, clist[i].cone_box.tl(), 
                 FONT_HERSHEY_SIMPLEX, 0.5, colour);
     }
