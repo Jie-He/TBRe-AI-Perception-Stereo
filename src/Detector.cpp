@@ -161,7 +161,8 @@ void Detector::postprocess(Mat& frame, const std::vector<Mat>& outs,
         c.cone_accuy = (int)(confidence[idx] * 100);
         c.cone_box   = bounding[idx];
         c.cone_centre= centreP[idx];
-        c.cone_point_dist = 999; // default far away?
+        c.cone_point_dist = -1; // default -1?
+        c.cone_trig_dist  = -1;
         clist.push_back(c);
     }
 }
@@ -183,9 +184,8 @@ void Detector::drawDetections(Mat& frame, std::vector<cone>& clist){
             colour = Scalar(   0, 140, 255);
         else
             colour = Scalar( 0, 0, 255);
-        rectangle(frame, clist[i].cone_box, colour);
-        circle(frame, clist[i].cone_centre, clist[i].cone_box.width / 2
-                , colour, 1);
+        rectangle(frame, clist[i].cone_box, colour, 2);
+        circle(frame, clist[i].cone_centre, 10, colour, 2);
     
 
         // Grab the label

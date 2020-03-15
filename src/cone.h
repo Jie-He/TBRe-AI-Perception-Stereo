@@ -17,6 +17,7 @@ class cone{
         cv::Point cone_centre;
         cv::Rect cone_box;
         float cone_point_dist;
+        float cone_trig_dist;
 };
 
 #endif  // _CONE_H_

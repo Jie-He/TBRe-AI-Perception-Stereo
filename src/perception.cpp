@@ -16,8 +16,11 @@
 #include <algorithm>    // std::random_shuffle
 #include <cstdlib>      // std::rand
 
-
+// Opencv
+#include <opencv2/core/core.hpp>
 #include <opencv2/highgui.hpp>
+// SIFT descriptor // extractor
+#include <opencv2/xfeatures2d.hpp>
 
 #include "Detector.h" // <- the other opencv includes are here
 #include "cone.h"
@@ -32,13 +35,57 @@ static const std::string oWName = "Right";
 static const std::string dWName = "Depth";
 static const std::string sWName = "crops";
 
+// ZED camera properties
 const float dist_right = 120.0; // In milimeters
 const float focal_lent = 2.8;
-const float pixle_size = 0.002;
+const float pixle_size = 0.004;
+
+// SIFT setting
+const int minHessian = 400;
+const float ratio_thresh  = 0.7f;
 // ============================================================================
 
 using namespace cv;
 cv::Mat slMat2cvMat(sl::Mat& input);
+
+void sift_triangulate(Mat imgl, Mat imgr, cone c, Point lxy, Point rxy){
+    Ptr<xfeatures2d::SIFT> sift_detector = \
+    xfeatures2d::SIFT::create(minHessian);
+
+    std::vector<KeyPoint> keypoints1, keypoints2;
+    Mat descriptor1, descriptor2;
+
+    sift_detector->detectAndCompute( imgl, noArray(), keypoints1, descriptor1);
+    sift_detector->detectAndCompute( imgr, noArray(), keypoints2, descriptor2);
+
+    // Match the descriptor with FLANN based matcher
+    Ptr<DescriptorMatcher> matcher = \
+    DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
+
+    std::vector<std::vector<DMatch>> knn_matches;
+    
+    matcher->knnMatch( descriptor1, descriptor2, knn_matches, 2);
+
+    // Filter with Lowe's ratio test
+    std::vector<DMatch> good_matches;
+
+    Point2f point1, point2;
+
+    for(size_t i = 0; i < knn_matches.size(); i++){
+        if(knn_matches[i][0].distance < \
+        ratio_thresh * knn_matches[i][1].distance){
+            good_matches.push_back(knn_matches[i][0]);    
+        }
+    }
+
+    // Draw matches
+    Mat img_matches;
+    drawMatches(imgl, keypoints1, imgr, keypoints2, good_matches,
+                img_matches, Scalar::all(-1), Scalar::all(-1),
+                std::vector<char>(), DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
+    
+    imshow("MATCHES", img_matches);
+}
 
 void avg_list_point(sl::Mat& point_cloud, sl::float4& pt,
                     std::vector<Point>& sample, int count, int ofx, int ofy){
@@ -58,71 +105,87 @@ void avg_list_point(sl::Mat& point_cloud, sl::float4& pt,
     x = x / valid_count;
     y = y / valid_count;
     z = z / valid_count;
-    std::cout << "valid counts: " << valid_count << std::endl;
+    //std::cout << "valid counts: " << valid_count << std::endl;
     pt.x = x; pt.y = y; pt.z = z;
 }
 
 void approx_distance(sl::Mat& point_cloud, std::vector<cone>& clist,
                      cv::Mat& leftframe, cv::Mat& rightFrame){
     sl::float4 point3D;
-    static int sample_size = 100;
+    static int sample_size = 50;
     
     // crop out the cone in the left image
-    Mat crop;
+    Mat leftcrop, rightcrop, crophsv;
     std::vector<Point> whitePix;
     
     // get dept information on each cone
     for (size_t i = 0; i < clist.size(); i++){
         //crop = Mat(leftframe, clist[i].cone_box);
-        crop = leftframe( Rect(0, 0, leftframe.cols, leftframe.rows)
+        leftcrop = leftframe( Rect(0, 0, leftframe.cols, leftframe.rows)
                           & clist[i].cone_box);
                           
         // convert to HSV channel
-        cvtColor(crop, crop, COLOR_BGRA2RGB);
-        cvtColor(crop, crop, COLOR_RGB2HSV);
+        cvtColor(leftcrop, crophsv, COLOR_BGRA2RGB);
+        cvtColor(crophsv , crophsv, COLOR_RGB2HSV);
         // produce black and white pic
-        inRange( crop, Scalar(14, 125, 0), Scalar(255, 255, 255), crop);
+        inRange( crophsv, Scalar(14, 125, 0), Scalar(255, 255, 255), crophsv);
         // count the number of white pixles
-        cv::findNonZero(crop, whitePix);
+        cv::findNonZero(crophsv, whitePix);
 
         point_cloud.getValue(clist[i].cone_centre.x,
                              clist[i].cone_centre.y, &point3D);
 
         // apply the offset
-
+        // calculate the mean between few points 
+        clist[i].cone_point_dist = \
+        sqrt(point3D.x*point3D.x + point3D.y*point3D.y + point3D.z*point3D.z);
 
         // sample 100 points frin wpix;
-        // if no more than 100 points use the list
+        //if no more than 100 points use the list
         if (whitePix.size() > sample_size){
             std::random_shuffle(whitePix.begin(), whitePix.end());
             avg_list_point(point_cloud, point3D, whitePix, sample_size,
                            clist[i].cone_box.x, clist[i].cone_box.y);
         }else{
-            avg_list_point(point_cloud, point3D, whitePix, whitePix.size(),
-                           clist[i].cone_box.x, clist[i].cone_box.y);
+             avg_list_point(point_cloud, point3D, whitePix, whitePix.size(),
+                            clist[i].cone_box.x, clist[i].cone_box.y);
         }
 
-        // average the first 100 points (some might be NaN)
-        imshow(sWName, crop);
-        // calc centre point in right frame
+        // average the first 50 points (some might be NaN)
+        imshow(sWName, crophsv);
 
-        // calculate the mean between few points 
-        clist[i].cone_point_dist = \
-        sqrt(point3D.x*point3D.x + point3D.y*point3D.y + point3D.z*point3D.z);
-            
-        std::cout << clist[i].cone_class << " : "
-                  << clist[i].cone_point_dist << std::endl;
+        std::cout << "Class: " << clist[i].cone_class << ", "
+                  << "Predn: " << clist[i].cone_accuy << ", "
+                  << "Distn: " << clist[i].cone_point_dist << ", "
+                  << "Trign: " << clist[i].cone_trig_dist << std::endl;  
 
-        std::cout << "xyz: " << point3D.x << "  #  "
-                  << point3D.y << "  #  " << point3D.z << std::endl; 
+        if( !std::isnan(clist[i].cone_point_dist)){
+            // approx this x in the other frame
+            int rx; // same y
+            float m = (point3D.z) / (point3D.x - dist_right);
+            rx = ((focal_lent / m) / pixle_size ) + (rightFrame.cols / 2); 
+            // need to add half the screen width
 
-        // approx this x in the other frame
-        int rx; // same y
-        float m = (point3D.z) / (point3D.x - dist_right);
-        rx = ((focal_lent / m) / pixle_size ) + 960; // need to add half the screen width
-        //draw a circle in the right frame of radius 10
-        circle(rightFrame, Point(rx, clist[i].cone_centre.y), 10, Scalar(0, 255, 0), 2);
+            // define a rectangle that is 2x as wide
+            Rect right_box = Rect(rx - (clist[i].cone_box.width), 
+                    clist[i].cone_box.y, clist[i].cone_box.width * 2, 
+                    clist[i].cone_box.height);
+
+            rightcrop = rightFrame(Rect( 0, 0, rightFrame.cols, rightFrame.rows) 
+                                    & right_box );
+
+            sift_triangulate(leftcrop, rightcrop, clist[i], 
+                            clist[i].cone_box.tl(),
+                            right_box.tl());
+
+            // draw a rectangle that is 2x as wide
+            rectangle(rightFrame, right_box, Scalar(0, 255, 0), 1);
+            //draw a circle in the right frame of radius 10
+            circle(rightFrame, Point(rx, clist[i].cone_centre.y), 10, 
+                                     Scalar(0, 255, 0), 1);  
+        }
     }
+    std::cout << "================== DIVIDER ====================" << std::endl;    
 }
 
 void zed_mode(sl::Camera& zed){
@@ -136,8 +199,8 @@ void zed_mode(sl::Camera& zed){
     zed.getCameraInformation().camera_resolution;
 
     //take this half res off for now
-    int new_width = image_size.width ;
-    int new_height= image_size.height;
+    int new_width = image_size.width /2;
+    int new_height= image_size.height/2;
 
     // initialise detector
     Detector detector = Detector(new_width, new_height);
